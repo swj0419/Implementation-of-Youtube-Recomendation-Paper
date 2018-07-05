@@ -1,7 +1,7 @@
 # Recsys
 
 ### Datasets:
-General: http://shuaizhang.tech/2017/03/15/Datasets-For-Recommender-System/
+General: http://shuaizhang.tech/2017/03/15/Datasets-For-Recommender-System/ \n
 Movielens: https://grouplens.org/datasets/movielens/
 
 ### Useful github
