@@ -15,15 +15,15 @@ from preprocess_ml_1m import *
 
 #### all parameter
 batch_size = 100
-emb_size = 56
-max_window_size = 1000
+emb_size = 86
+max_window_size = 70
 
-learning_rate = 0.001
-training_epochs = 10
+learning_rate = 0.0001
+training_epochs = 300
 display_step = 1
-
+y_size = 15
 # Network Parameters
-n_hidden_1 = 56 # 1st layer number of features
+n_hidden_1 = 86 # 1st layer number of features
 # n_hidden_2 = 256 # 2nd layer number of features
 
 # init_data(train_file)
@@ -43,6 +43,7 @@ biases = {
     # 'b2': tf.Variable(tf.random_normal([n_hidden_2])),
     'out': tf.Variable(tf.random_normal([n_classes]))
 }
+
 
 
 # Create model
@@ -70,8 +71,12 @@ word_num = tf.placeholder(tf.float32, shape=[None, 1])
 x_batch = tf.placeholder(tf.int32, shape=[None, max_window_size])   ###max_window_size
 y_batch = tf.placeholder(tf.float32, shape=[None, 3883]) ###one-hot？？？
 
+
+
 input_embedding = tf.nn.embedding_lookup(embedding['input'], x_batch)
 project_embedding = tf.div(tf.reduce_sum(input_embedding, 1),word_num)
+
+check_op = tf.add_check_numerics_ops()
 
 
 
@@ -81,7 +86,8 @@ pred = multilayer_perceptron(project_embedding, weights, biases)
 
 # Construct the variables for the NCE loss
 score = tf.matmul(pred, tf.transpose(embedding['input']))
-loss = tf.nn.softmax_cross_entropy_with_logits(logits = score, labels = y_batch)
+loss = tf.nn.sigmoid_cross_entropy_with_logits(logits = score, labels = y_batch)
+
 cost = tf.reduce_mean(loss)
 
 optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
@@ -89,10 +95,69 @@ optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
 
 init = tf.global_variables_initializer()
 
-out_layer = tf.nn.softmax(score)
+out_layer = tf.nn.sigmoid(score)
 
 #### read data function
 def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use:(mid,rate)}
+    """
+    :param pos:
+    :param batch_size:
+    :param data_lst:
+    :return: returns a set of numpy arrays, which will be fed into tensorflow placeholders
+    """
+    batch = {}
+    i = pos
+    for key, value in data_lst.copy().items():
+        batch.update({key: value})
+        del [data_lst[key]]
+        pos += 1
+        if (pos >= i + batch_size):
+            break
+
+    x = np.zeros((batch_size, max_window_size))
+    y = np.zeros((batch_size, n_classes), dtype=int)
+
+
+    word_num = np.zeros((batch_size))
+
+    line_no = 0
+
+    for key, value in batch.items():
+        col_no_x = 0
+        col_no_y = 0
+        # print(line_no)
+        for i in value:
+            # update y
+            ####one hot encoding for y has five labels
+            if (col_no_y < y_size):
+                index = int(i[0])
+                y[line_no][index] = 1
+                col_no_y += 1
+            # update x
+            ###other use as embedding look up for x
+            else:
+                index = int(i[0])
+                # y[line_no][index] = 1
+                x[line_no][col_no_x] = i[0]
+                col_no_x += 1
+
+            if col_no_x >= max_window_size:
+                break
+
+####add negative samples:  set one hot encoding for negative sample = -1
+        if key in neg_lst:
+            for i in neg_lst[key]:
+                index = int(i[0]) - 1
+                y[line_no][index] = -0.5
+
+
+        word_num[line_no] = col_no_x
+        line_no += 1
+
+    return x, y, word_num.reshape(batch_size, 1)
+
+
+def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use:(mid,rate)}
     """
     :param pos:
     :param batch_size:
@@ -124,13 +189,15 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
         for i in value:
             # update y
             ####one hot encoding for y has five labels
-            if (col_no_y <= 5):
-                index = int(i[0])-1
+            if (col_no_y < y_size):
+                index = int(i[0])
                 y[line_no][index] = 1
                 col_no_y += 1
             # update x
-            ###other use as
+            ###other use as embedding look up for x
             else:
+                index = int(i[0])
+                # y[line_no][index] = 1
                 x[line_no][col_no_x] = i[0]
                 col_no_x += 1
 
@@ -150,6 +217,95 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
     return x, y, word_num.reshape(batch_size, 1)
 
 
+###################################### Test model
+    # _, top = tf.nn.top_k(out_layer, k = 11)
+    # correct_prediction = tf.equal(top, y_batch)
+    # Calculate accuracy
+#    accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+def test():
+    test_lst = u_mid_pos_test
+    total_batch = int(len(test_lst) / batch_size)
+
+    ##### top k accuracy:
+    k = 15
+    final_accuracy = 0
+    for i in range(total_batch):
+        copy = u_mid_pos_test.copy()
+        x, y, word_number = read_data_test(i * batch_size, batch_size, copy, u_mid_neg)
+        out_score = out_layer.eval({x_batch: x, word_num: word_number})
+
+        ### cost
+        c = cost.eval({x_batch: x, word_num: word_number, y_batch: y })
+        print("validation cost", c)
+        ## calculate recall and precision
+        rec_count = 0
+        hit = 0
+        test_count = 0
+        all_rec_movies = set()
+
+        for row_x, row_out, row_y in zip(x, out_score,y):
+            ## set the training labels' prob as 0
+            for col in row_x:
+                row_out[int(col)] = 0
+            ##get top k index
+            top_k = np.argsort(row_out)[::-1][:k]
+            print("predict", top_k)
+            print("real_y",  np.where(row_y == 1))
+            # print("real_x", row_x)
+            for index in top_k:
+                if(row_y[index] == 1):
+                    hit += 1
+                all_rec_movies.add(index)
+            rec_count += k
+            test_count += y_size
+        precision = hit / (1.0 * rec_count)
+        recall = hit / (1.0 * test_count)
+        # coverage = len(all_rec_movies) / (1.0 * movie_count)
+        print('precision=%.4f\trecall=%.4f\n' %
+              (precision, recall))
+
+        # _,top = tf.nn.top_k(out_layer, k=100)
+        # top = top.eval({x_batch: x, y_batch: y, word_num: word_number})
+
+
+        # print(out_layer[1])
+
+        ###accuracy
+    #     accuracy = np.zeros((batch_size, 1))
+    #     index_row = 0
+    #
+    #     for z,j, d in zip(top, y, a):
+    #         score = 0
+    #         # print(z[0:10])
+    #         # print("........")
+    #         # print(j)
+    #         # print("////////")
+    #         for col_i in z:
+    #             # print(d[col_i])
+    #             if(j[col_i] == 1):
+    #                 score += 1
+    #
+    #
+    #         accuracy[index_row] = score / 20
+    #         index_row += 1
+    #
+    #     # print(accuracy)
+    #     batch_accuracy = np.mean(accuracy)
+    #     final_accuracy += batch_accuracy
+    # print("Final Accuracy: ", final_accuracy * 1.0 / total_batch)
+
+
+
+
+
+
+
+
+
+
+
+#########run
+
 #with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as sess:
 with tf.Session() as sess:
     sess.run(init)
@@ -164,75 +320,23 @@ with tf.Session() as sess:
 
         for i in range(total_batch):
             x, y, word_number = read_data(i * batch_size, batch_size, copy, u_mid_neg)
+            # print(x)
             # print(word_number)
             # print(y)
-            _, c = sess.run([optimizer, cost],
+            _, c, a = sess.run([optimizer, cost, check_op],
                             feed_dict={x_batch: x, y_batch: y, word_num: word_number})
 
+            # print("loss", l)
             avg_cost += c / total_batch
+
+
 
         # Display logs per epoch step
         if epoch % display_step == 0:
             print("Epoch:", '%04d' % (epoch + 1), "cost=", \
               "{:.9f}".format(avg_cost))
 
-
-
-
-###################################### Test model
-    # _, top = tf.nn.top_k(out_layer, k = 11)
-    # correct_prediction = tf.equal(top, y_batch)
-    # Calculate accuracy
-#    accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
-
-    test_lst = u_mid_pos_test
-    total_batch = int(len(test_lst) / batch_size)
-
-    final_accuracy = 0
-    for i in range(total_batch):
-        copy = u_mid_pos_test.copy()
-        x, y, word_number = read_data(i * batch_size, batch_size, copy, u_mid_neg)
-        _,top = tf.nn.top_k(out_layer, k=100)
-        top = top.eval({x_batch: x, y_batch: y, word_num: word_number})
-        out_layer = out_layer.eval({x_batch: x, y_batch: y, word_num: word_number})
-
-        # print(out_layer[1])
-        # print(top[1])
-        # print(y[1])
-        # print(out_layer[2])
-        # print(top[2])
-        # print(y[2])
-
-        ###accuracy
-        accuracy = np.zeros((batch_size, 1))
-        index_row = 0
-
-        for i,j in zip(top, y):
-            score = 0
-            print(i)
-            # print("........")
-            print(j)
-            # print("////////")
-            for col_i in i:
-                if col_i in j:
-                    score += 1
-
-            accuracy[index_row] = score / 11
-            index_row += 1
-
-        print(accuracy)
-        batch_accuracy = np.mean(accuracy)
-        final_accuracy += batch_accuracy
-    print("Final Accuracy: ", final_accuracy * 1.0 / total_batch)
-
-
-
-
-
-        # batch_accuracy = accuracy.eval({x_batch: x, y_batch: y, word_num: word_number})
-        # print("Batch Accuracy: ", batch_accuracy)
-        # final_accuracy += batch_accuracy
-    # print("Final Accuracy: ", final_accuracy * 1.0 / total_batch)
+        test()
 
 """
 Typical project configuration using TensorFlow: 
