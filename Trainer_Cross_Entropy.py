@@ -249,8 +249,8 @@ def test():
                 row_out[int(col)] = 0
             ##get top k index
             top_k = np.argsort(row_out)[::-1][:k]
-            print("predict", top_k)
-            print("real_y",  np.where(row_y == 1))
+            # print("predict", top_k)
+            # print("real_y",  np.where(row_y == 1))
             # print("real_x", row_x)
             for index in top_k:
                 if(row_y[index] == 1):
