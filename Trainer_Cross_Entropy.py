@@ -18,10 +18,10 @@ batch_size = 100
 emb_size = 86
 max_window_size = 70
 
-learning_rate = 0.0001
+learning_rate = 0.00001
 training_epochs = 300
 display_step = 1
-y_size = 15
+y_size = 30
 # Network Parameters
 n_hidden_1 = 86 # 1st layer number of features
 # n_hidden_2 = 256 # 2nd layer number of features
@@ -86,7 +86,7 @@ pred = multilayer_perceptron(project_embedding, weights, biases)
 
 # Construct the variables for the NCE loss
 score = tf.matmul(pred, tf.transpose(embedding['input']))
-loss = tf.nn.sigmoid_cross_entropy_with_logits(logits = score, labels = y_batch)
+loss = tf.nn.softmax_cross_entropy_with_logits(logits = score, labels = y_batch)
 
 cost = tf.reduce_mean(loss)
 
@@ -95,7 +95,7 @@ optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
 
 init = tf.global_variables_initializer()
 
-out_layer = tf.nn.sigmoid(score)
+out_layer = tf.nn.softmax(score)
 
 #### read data function
 def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use:(mid,rate)}
@@ -146,9 +146,13 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
 
 ####add negative samples:  set one hot encoding for negative sample = -1
         if key in neg_lst:
+            count = 0
             for i in neg_lst[key]:
                 index = int(i[0]) - 1
                 y[line_no][index] = -0.5
+                if(count > y_size*2):
+                    break
+                count = count + 1
 
 
         word_num[line_no] = col_no_x
@@ -156,65 +160,6 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
 
     return x, y, word_num.reshape(batch_size, 1)
 
-
-def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use:(mid,rate)}
-    """
-    :param pos:
-    :param batch_size:
-    :param data_lst:
-    :return: returns a set of numpy arrays, which will be fed into tensorflow placeholders
-    """
-    batch = {}
-    # print("pos", pos)
-    i = pos
-    for key, value in data_lst.copy().items():
-        batch.update({key: value})
-        del [data_lst[key]]
-        pos += 1
-        if (pos >= i + batch_size):
-            break
-
-    x = np.zeros((batch_size, max_window_size))
-    y = np.zeros((batch_size, n_classes), dtype=int)
-
-
-    word_num = np.zeros((batch_size))
-
-    line_no = 0
-
-    for key, value in batch.items():
-        col_no_x = 0
-        col_no_y = 0
-        # print(line_no)
-        for i in value:
-            # update y
-            ####one hot encoding for y has five labels
-            if (col_no_y < y_size):
-                index = int(i[0])
-                y[line_no][index] = 1
-                col_no_y += 1
-            # update x
-            ###other use as embedding look up for x
-            else:
-                index = int(i[0])
-                # y[line_no][index] = 1
-                x[line_no][col_no_x] = i[0]
-                col_no_x += 1
-
-            if col_no_x >= max_window_size:
-                break
-
-####add negative samples:  set one hot encoding for negative sample = -1
-        if key in neg_lst:
-            for i in neg_lst[key]:
-                index = int(i[0]) - 1
-                y[line_no][index] = -1
-
-
-        word_num[line_no] = col_no_x
-        line_no += 1
-
-    return x, y, word_num.reshape(batch_size, 1)
 
 
 ###################################### Test model
@@ -227,11 +172,11 @@ def test():
     total_batch = int(len(test_lst) / batch_size)
 
     ##### top k accuracy:
-    k = 15
+    k = 30
     final_accuracy = 0
     for i in range(total_batch):
         copy = u_mid_pos_test.copy()
-        x, y, word_number = read_data_test(i * batch_size, batch_size, copy, u_mid_neg)
+        x, y, word_number = read_data(i * batch_size, batch_size, copy, u_mid_neg)
         out_score = out_layer.eval({x_batch: x, word_num: word_number})
 
         ### cost

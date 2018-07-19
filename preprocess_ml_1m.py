@@ -62,7 +62,7 @@ test size is 0.1
 
 '''
 test_size = 0.1
-filter_threshold = 20
+filter_threshold = 40
 ##filter value < 8
 count = 0
 
