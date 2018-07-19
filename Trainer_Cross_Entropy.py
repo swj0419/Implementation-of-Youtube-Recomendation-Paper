@@ -15,7 +15,7 @@ from preprocess_ml_1m import *
 
 #### all parameter
 batch_size = 100
-emb_size = 60
+emb_size = 128
 max_window_size = 70
 
 learning_rate = 0.0001
@@ -23,7 +23,7 @@ training_epochs = 300
 display_step = 1
 y_size = 30
 # Network Parameters
-n_hidden_1 = 60 # 1st layer number of features
+n_hidden_1 = 128 # 1st layer number of features
 # n_hidden_2 = 256 # 2nd layer number of features
 
 # init_data(train_file)
