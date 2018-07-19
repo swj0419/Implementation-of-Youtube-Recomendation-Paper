@@ -15,15 +15,15 @@ from preprocess_ml_1m import *
 
 #### all parameter
 batch_size = 100
-emb_size = 86
+emb_size = 60
 max_window_size = 70
 
-learning_rate = 0.00001
+learning_rate = 0.0001
 training_epochs = 300
 display_step = 1
 y_size = 30
 # Network Parameters
-n_hidden_1 = 86 # 1st layer number of features
+n_hidden_1 = 60 # 1st layer number of features
 # n_hidden_2 = 256 # 2nd layer number of features
 
 # init_data(train_file)
@@ -86,7 +86,7 @@ pred = multilayer_perceptron(project_embedding, weights, biases)
 
 # Construct the variables for the NCE loss
 score = tf.matmul(pred, tf.transpose(embedding['input']))
-loss = tf.nn.softmax_cross_entropy_with_logits(logits = score, labels = y_batch)
+loss = tf.nn.sigmoid_cross_entropy_with_logits(logits = score, labels = y_batch)
 
 cost = tf.reduce_mean(loss)
 
@@ -95,7 +95,7 @@ optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost)
 
 init = tf.global_variables_initializer()
 
-out_layer = tf.nn.softmax(score)
+out_layer = tf.nn.sigmoid(score)
 
 #### read data function
 def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use:(mid,rate)}
