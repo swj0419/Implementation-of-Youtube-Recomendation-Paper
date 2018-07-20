@@ -50,7 +50,7 @@ with open("./ml-1m/ratings.dat",encoding='latin-1') as f:
         line = line.strip().split("::")
         mid_rating = set()
         mid_rating = (id_line[line[1]], line[2])
-
+        #
         # ## user genre
         # for genre in mid_genre[line[1]]:
         #     if(genre=="Action"):
@@ -89,7 +89,7 @@ with open("./ml-1m/ratings.dat",encoding='latin-1') as f:
         #         user_genre[int(line[0])][16] += 1
         #     elif (genre == "Western"):
         #         user_genre[int(line[0])][17] += 1
-        #
+
 
 
 
@@ -124,6 +124,8 @@ for key, value in u_mid_pos.copy().items():
     else:
         count += 1
         shuffle(u_mid_pos[key])
+
+
 
 
 for key, value in u_mid_pos_test.copy().items():

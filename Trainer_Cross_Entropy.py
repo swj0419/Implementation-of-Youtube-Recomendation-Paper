@@ -15,9 +15,13 @@ from preprocess_ml_1m import *
 
 #### all parameter
 batch_size = 100
-emb_size = 64
+emb_size = 32
 max_window_size = 70
-input_size = emb_size+2+7+21
+occupation_emb_size = 3
+feature_size = 1+1
+genre_size = 18
+input_size = emb_size+feature_size+occupation_emb_size+genre_size
+
 
 learning_rate = 0.0001
 training_epochs = 3000
@@ -25,7 +29,7 @@ display_step = 1
 y_size = 25
 # Network Parameters
 n_hidden_1 = 128 # 1st layer number of features
-n_hidden_2 = 64 # 2nd layer number of features
+n_hidden_2 = 32 # 2nd layer number of features
 
 # init_data(train_file)
 n_classes = len(movie_line)
@@ -67,16 +71,29 @@ embedding = {
     # 'output':tf.Variable(tf.random_uniform([len(label_dict)+1, emb_size], -1.0, 1.0))
 }
 
+
+embedding_occ = {
+    'input':tf.Variable(tf.random_uniform([21, occupation_emb_size], -1.0, 1.0))
+    # 'output':tf.Variable(tf.random_uniform([len(label_dict)+1, emb_size], -1.0, 1.0))
+}
+
+
 ##### initialize batch parameter
 word_num = tf.placeholder(tf.float32, shape=[None, 1])
 x_batch = tf.placeholder(tf.int32, shape=[None, max_window_size])   ###max_window_size
-y_batch = tf.placeholder(tf.float32, shape=[None, 3883]) ###one-hot？？？
-feature_batch = tf.placeholder(tf.float32, shape=[None, 2+7+21])
+y_batch = tf.placeholder(tf.float32, shape=[None, n_classes]) ###one-hot？？？
+feature_batch = tf.placeholder(tf.float32, shape=[None, feature_size])
+occupation_batch =  tf.placeholder(tf.int32, shape=[None, 1])
+occupation_embedding = tf.squeeze(tf.nn.embedding_lookup(embedding_occ['input'], occupation_batch))
+genre_batch = tf.placeholder(tf.float32, shape=[None, genre_size])
+
 
 
 input_embedding = tf.nn.embedding_lookup(embedding['input'], x_batch)
 project_embedding = tf.div(tf.reduce_sum(input_embedding, 1),word_num)
 project_embedding = tf.concat([project_embedding, feature_batch],1)
+project_embedding = tf.concat([project_embedding, occupation_embedding],1)
+project_embedding = tf.concat([project_embedding, genre_batch],1)
 check_op = tf.add_check_numerics_ops()
 
 
@@ -117,8 +134,18 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
 
     x = np.zeros((batch_size, max_window_size))
     y = np.zeros((batch_size, n_classes), dtype=int)
-    feature = np.zeros((batch_size, 2 + 7 + 21), dtype=int)
+    ##feature: age and gender
+    feature = np.zeros((batch_size,feature_size))
+    ##occupation:
+    occupation = np.zeros((batch_size, 1))
+    ##genre:
+    genre = np.zeros((batch_size, genre_size))
 
+
+
+
+
+    ##word_num
     word_num = np.zeros((batch_size))
 
     line_no = 0
@@ -129,22 +156,22 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
 
         # update other feature:
         ##user_gender:
-        gender = np.zeros(2)
-        gender[user_gender[key]] = 1
+        gender = np.zeros(1)
+        gender[0] = user_gender[key]
 
         ## user_age:
-        age = np.zeros(7)
-        age[user_age[key]] = 1
+        age = np.zeros(1)
+        age[0] = user_age[key]
+
 
         ## user_occupation:
-        occupation = np.zeros(21)
-        occupation[user_occupation[key]] = 1
+        occupation[line_no][:] = user_occupation[key]
+
+        ## user genre:
+        genre[line_no][:] = user_genre[key]
 
         temp = np.concatenate([gender, age])
-        temp = np.concatenate([temp, occupation])
         feature[line_no][:] = temp
-
-
 
         for i in value:
             # update y
@@ -176,8 +203,9 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
 
         word_num[line_no] = col_no_x
         line_no += 1
-
-    return x, y, word_num.reshape(batch_size, 1), feature
+    # print("occuaption", occupation)
+    # print("feature", feature)
+    return x, y, word_num.reshape(batch_size, 1), feature, occupation, genre
 
 
 
@@ -191,15 +219,19 @@ def test():
     total_batch = int(len(test_lst) / batch_size)
 
     ##### top k accuracy:
-    k = 30
+    k = 25
     final_accuracy = 0
     for i in range(total_batch):
         copy = u_mid_pos_test.copy()
-        x, y, word_number, feature = read_data(i * batch_size, batch_size, copy, u_mid_neg)
-        out_score = out_layer.eval({x_batch: x, word_num: word_number, feature_batch: feature})
+        x, y, word_number, feature, occupation, genre = read_data(i * batch_size, batch_size, copy, u_mid_neg)
+        out_score = out_layer.eval({x_batch: x, word_num: word_number,
+                                    feature_batch: feature, occupation_batch: occupation,
+                                    genre_batch: genre})
 
         ### cost
-        c = cost.eval({x_batch: x, word_num: word_number, y_batch: y, feature_batch: feature})
+        c = cost.eval({x_batch: x, word_num: word_number, y_batch: y,
+                                    feature_batch: feature, occupation_batch: occupation,
+                                    genre_batch: genre})
         print("validation cost", c)
         ## calculate recall and precision
         rec_count = 0
@@ -283,12 +315,14 @@ with tf.Session() as sess:
         copy = u_mid_pos.copy()
 
         for i in range(total_batch):
-            x, y, word_number, feature = read_data(i * batch_size, batch_size, copy, u_mid_neg)
+            x, y, word_number, feature, occupation, genre = read_data(i * batch_size, batch_size, copy, u_mid_neg)
             # print(x)
             # print(word_number)
             # print(y)
             _, c, a = sess.run([optimizer, cost, check_op],
-                            feed_dict={x_batch: x, y_batch: y, word_num: word_number, feature_batch:feature})
+                            feed_dict=({x_batch: x, word_num: word_number, y_batch: y,
+                                    feature_batch: feature, occupation_batch: occupation,
+                                    genre_batch: genre}))
 
             # print("loss", l)
             avg_cost += c / total_batch
