@@ -11,7 +11,7 @@ import itertools
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-from preprocess_ml_1m import *
+from preprocess_ml_1m_TEST2 import *
 
 #### all parameter
 batch_size = 100
@@ -31,6 +31,8 @@ n_classes = len(movie_line)
 # train_lst = linecache.getlines(train_file)
 print("Class Num: ", n_classes)
 
+### store y label for training set
+y_label = {}
 
 # Store layers weight & bias
 weights = {
@@ -133,6 +135,10 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
                 index = int(i[0])
                 y[line_no][index] = 1
                 col_no_y += 1
+                ## store in y_label:
+                y_label.setdefault(key,set()).add(i[0])
+
+
             # update x
             ###other use as embedding look up for x
             else:
@@ -149,16 +155,81 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
             count = 0
             for i in neg_lst[key]:
                 index = int(i[0]) - 1
-                y[line_no][index] = -0.5
-                if(count > y_size*2):
+                y[line_no][index] = -1
+                if(count > y_size*3):
                     break
                 count = count + 1
+
 
         word_num[line_no] = col_no_x
         line_no += 1
 
     return x, y, word_num.reshape(batch_size, 1)
 
+
+def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use:(mid,rate)}
+    """
+    :param pos:
+    :param batch_size:
+    :param data_lst:
+    :return: returns a set of numpy arrays, which will be fed into tensorflow placeholders
+    """
+    batch = {}
+    i = pos
+    for key, value in data_lst.copy().items():
+        batch.update({key: value})
+        del [data_lst[key]]
+        pos += 1
+        if (pos >= i + batch_size):
+            break
+
+    x = np.zeros((batch_size, max_window_size))
+    y = np.zeros((batch_size, n_classes), dtype=int)
+    y_label_test = np.zeros((batch_size, y_size), dtype=int)
+
+
+    word_num = np.zeros((batch_size))
+
+    line_no = 0
+
+    for key, value in batch.items():
+        col_no_x = 0
+        col_no_y = 0
+        col_no_y_label = 0
+        for i in value:
+            # update y
+            ####one hot encoding for y has five labels
+            index = int(i[0])
+            y[line_no][index] = 1
+            col_no_y += 1
+
+        # update x
+        for index in u_mid_pos[key]:
+            x[line_no][col_no_x] = index[0]
+            col_no_x += 1
+            if col_no_x >= max_window_size:
+                break
+
+        ##update y-label
+        for u in y_label[key]:
+            y_label_test[line_no][col_no_y_label] = str(u)
+            col_no_y_label += 1
+
+        ####add negative samples:  set one hot encoding for negative sample = -1
+        if key in neg_lst:
+            count = 0
+            for i in neg_lst[key]:
+                index = int(i[0]) - 1
+                y[line_no][index] = -1
+                if (count > col_no_y * 3):
+                    break
+                count = count + 1
+
+        word_num[line_no] = col_no_x
+        line_no += 1
+
+
+    return x, y, word_num.reshape(batch_size, 1), y_label_test
 
 
 ###################################### Test model
@@ -172,25 +243,32 @@ def test():
 
     ##### top k accuracy:
     k = 30
-    final_accuracy = 0
+    rec_count = 0
+    hit = 0
+    test_count = 0
+    # all_rec_movies = set()
+    avg_cost = 0
+
     for i in range(total_batch):
         copy = u_mid_pos_test.copy()
-        x, y, word_number = read_data(i * batch_size, batch_size, copy, u_mid_neg)
+        x, y, word_number, y_label_test = read_data_test(i * batch_size, batch_size, copy, u_mid_neg)
         out_score = out_layer.eval({x_batch: x, word_num: word_number})
 
         ### cost
         c = cost.eval({x_batch: x, word_num: word_number, y_batch: y })
-        print("validation cost", c)
-        ## calculate recall and precision
-        rec_count = 0
-        hit = 0
-        test_count = 0
-        all_rec_movies = set()
 
-        for row_x, row_out, row_y in zip(x, out_score,y):
+
+        avg_cost += c / total_batch
+        ## calculate recall and precision
+
+
+        for row_x, row_out, row_y, row_y_label in zip(x, out_score,y, y_label_test):
             ## set the training labels' prob as 0
             for col in row_x:
                 row_out[int(col)] = 0
+            for col in row_y_label:
+                row_out[int(col)] = 0
+
             ##get top k index
             top_k = np.argsort(row_out)[::-1][:k]
             # print("predict", top_k)
@@ -199,46 +277,14 @@ def test():
             for index in top_k:
                 if(row_y[index] == 1):
                     hit += 1
-                all_rec_movies.add(index)
             rec_count += k
             test_count += y_size
-        precision = hit / (1.0 * rec_count)
-        recall = hit / (1.0 * test_count)
-        # coverage = len(all_rec_movies) / (1.0 * movie_count)
-        print('precision=%.4f\trecall=%.4f\n' %
-              (precision, recall))
-
-        # _,top = tf.nn.top_k(out_layer, k=100)
-        # top = top.eval({x_batch: x, y_batch: y, word_num: word_number})
-
-
-        # print(out_layer[1])
-
-        ###accuracy
-    #     accuracy = np.zeros((batch_size, 1))
-    #     index_row = 0
-    #
-    #     for z,j, d in zip(top, y, a):
-    #         score = 0
-    #         # print(z[0:10])
-    #         # print("........")
-    #         # print(j)
-    #         # print("////////")
-    #         for col_i in z:
-    #             # print(d[col_i])
-    #             if(j[col_i] == 1):
-    #                 score += 1
-    #
-    #
-    #         accuracy[index_row] = score / 20
-    #         index_row += 1
-    #
-    #     # print(accuracy)
-    #     batch_accuracy = np.mean(accuracy)
-    #     final_accuracy += batch_accuracy
-    # print("Final Accuracy: ", final_accuracy * 1.0 / total_batch)
-
-
+    precision = hit / (1.0 * rec_count)
+    recall = hit / (1.0 * test_count)
+    print("validation cost", avg_cost)
+    # coverage = len(all_rec_movies) / (1.0 * movie_count)
+    print('precision=%.4f\trecall=%.4f\n' %
+            (precision, recall))
 
 
 
