@@ -15,16 +15,17 @@ from preprocess_ml_1m import *
 
 #### all parameter
 batch_size = 100
-emb_size = 128
+emb_size = 64
 max_window_size = 70
+input_size = emb_size+2+7+21
 
 learning_rate = 0.0001
-training_epochs = 300
+training_epochs = 3000
 display_step = 1
 y_size = 25
 # Network Parameters
 n_hidden_1 = 128 # 1st layer number of features
-# n_hidden_2 = 256 # 2nd layer number of features
+n_hidden_2 = 64 # 2nd layer number of features
 
 # init_data(train_file)
 n_classes = len(movie_line)
@@ -34,13 +35,13 @@ print("Class Num: ", n_classes)
 
 # Store layers weight & bias
 weights = {
-    'h1': tf.Variable(tf.random_normal([emb_size, n_hidden_1])),
-    # 'h2': tf.Variable(tf.random_normal([n_hidden_1, n_hidden_2])),
+    'h1': tf.Variable(tf.random_normal([input_size, n_hidden_1])),
+    'h2': tf.Variable(tf.random_normal([n_hidden_1, n_hidden_2])),
     'out': tf.Variable(tf.random_normal([n_hidden_1, n_classes]))
 }
 biases = {
     'b1': tf.Variable(tf.random_normal([n_hidden_1])),
-    # 'b2': tf.Variable(tf.random_normal([n_hidden_2])),
+    'b2': tf.Variable(tf.random_normal([n_hidden_2])),
     'out': tf.Variable(tf.random_normal([n_classes]))
 }
 
@@ -52,13 +53,13 @@ def multilayer_perceptron(x, weights, biases):
     #x = tf.nn.dropout(x, 0.8)
     layer_1 = tf.add(tf.matmul(x, weights['h1']), biases['b1'])
     layer_1 = tf.nn.relu(layer_1)
-    #dlayer_1 = tf.nn.dropout(layer_1, 0.5)
-    #layer_2 = tf.add(tf.matmul(layer_1, weights['h2']), biases['b2'])
-    #layer_2 = tf.nn.relu(layer_2)
+    dlayer_1 = tf.nn.dropout(layer_1, 0.5)
+    layer_2 = tf.add(tf.matmul(layer_1, weights['h2']), biases['b2'])
+    layer_2 = tf.nn.relu(layer_2)
     # Output layer with linear activation
     # out_layer = tf.matmul(layer_1, weights['out']) + biases['out']
     # return out_layer
-    return layer_1
+    return layer_2
 
 #####embedding
 embedding = {
@@ -70,12 +71,12 @@ embedding = {
 word_num = tf.placeholder(tf.float32, shape=[None, 1])
 x_batch = tf.placeholder(tf.int32, shape=[None, max_window_size])   ###max_window_size
 y_batch = tf.placeholder(tf.float32, shape=[None, 3883]) ###one-hot？？？
-
+feature_batch = tf.placeholder(tf.float32, shape=[None, 2+7+21])
 
 
 input_embedding = tf.nn.embedding_lookup(embedding['input'], x_batch)
 project_embedding = tf.div(tf.reduce_sum(input_embedding, 1),word_num)
-
+project_embedding = tf.concat([project_embedding, feature_batch],1)
 check_op = tf.add_check_numerics_ops()
 
 
@@ -116,7 +117,7 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
 
     x = np.zeros((batch_size, max_window_size))
     y = np.zeros((batch_size, n_classes), dtype=int)
-
+    feature = np.zeros((batch_size, 2 + 7 + 21), dtype=int)
 
     word_num = np.zeros((batch_size))
 
@@ -125,7 +126,26 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
     for key, value in batch.items():
         col_no_x = 0
         col_no_y = 0
-        # print(line_no)
+
+        # update other feature:
+        ##user_gender:
+        gender = np.zeros(2)
+        gender[user_gender[key]] = 1
+
+        ## user_age:
+        age = np.zeros(7)
+        age[user_age[key]] = 1
+
+        ## user_occupation:
+        occupation = np.zeros(21)
+        occupation[user_occupation[key]] = 1
+
+        temp = np.concatenate([gender, age])
+        temp = np.concatenate([temp, occupation])
+        feature[line_no][:] = temp
+
+
+
         for i in value:
             # update y
             ####one hot encoding for y has five labels
@@ -157,7 +177,7 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
         word_num[line_no] = col_no_x
         line_no += 1
 
-    return x, y, word_num.reshape(batch_size, 1)
+    return x, y, word_num.reshape(batch_size, 1), feature
 
 
 
@@ -175,11 +195,11 @@ def test():
     final_accuracy = 0
     for i in range(total_batch):
         copy = u_mid_pos_test.copy()
-        x, y, word_number = read_data(i * batch_size, batch_size, copy, u_mid_neg)
-        out_score = out_layer.eval({x_batch: x, word_num: word_number})
+        x, y, word_number, feature = read_data(i * batch_size, batch_size, copy, u_mid_neg)
+        out_score = out_layer.eval({x_batch: x, word_num: word_number, feature_batch: feature})
 
         ### cost
-        c = cost.eval({x_batch: x, word_num: word_number, y_batch: y })
+        c = cost.eval({x_batch: x, word_num: word_number, y_batch: y, feature_batch: feature})
         print("validation cost", c)
         ## calculate recall and precision
         rec_count = 0
@@ -263,12 +283,12 @@ with tf.Session() as sess:
         copy = u_mid_pos.copy()
 
         for i in range(total_batch):
-            x, y, word_number = read_data(i * batch_size, batch_size, copy, u_mid_neg)
+            x, y, word_number, feature = read_data(i * batch_size, batch_size, copy, u_mid_neg)
             # print(x)
             # print(word_number)
             # print(y)
             _, c, a = sess.run([optimizer, cost, check_op],
-                            feed_dict={x_batch: x, y_batch: y, word_num: word_number})
+                            feed_dict={x_batch: x, y_batch: y, word_num: word_number, feature_batch:feature})
 
             # print("loss", l)
             avg_cost += c / total_batch

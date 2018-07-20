@@ -16,6 +16,7 @@ u_mid_neg = {}
 firstline = True
 
 count = 0
+mid_genre = {}
 ##Read movie id
 with open("./ml-1m/movies.dat", encoding='latin-1') as f:
     for line in f:
@@ -33,11 +34,11 @@ with open("./ml-1m/movies.dat", encoding='latin-1') as f:
         line_id.update({count: line[0]})
         id_line.update({line[0]: count})
         count = count + 1
-        ##genre
-        # genre = []
-        # genre.append(line[2].split("|"))
-        # id_genre.update({line[0]: genre})
 
+        ##genre
+        genre = []
+        genre.append(line[2].split("|"))
+        mid_genre.update({line[0]: genre})
 #####split train and test
 
 
@@ -75,6 +76,37 @@ for key, value in u_mid_pos.copy().items():
         shuffle(u_mid_pos[key])
 
 
+user_gender = {}  ## 0 is M, 1 is F
+user_age = {}  ##  0 - 1, 1 - 18, 2 - 25.....
+user_occupation = {} ## 0-0
+##### add user related information
+with open("./ml-1m/users.dat",encoding='latin-1') as f:
+    for line in f:
+        line = line.strip().split("::")
+        if(line[1] == "M"):
+            user_gender.update({int(line[0]): 0})
+        else:
+            user_gender.update({int(line[0]): 1})
+
+        ### update age
+        if(line[2] == "1"):
+            user_age.update({int(line[0]): 0})
+        elif(line[2] == "18"):
+            user_age.update({int(line[0]): 1})
+        elif (line[2] == "25"):
+            user_age.update({int(line[0]): 2})
+        elif (line[2] == "35"):
+            user_age.update({int(line[0]): 3})
+        elif (line[2] == "45"):
+            user_age.update({int(line[0]): 4})
+        elif (line[2] == "50"):
+            user_age.update({int(line[0]): 5})
+        elif (line[2] == "56"):
+            user_age.update({int(line[0]): 6})
+
+        ###update ocupation
+        user_occupation.update({int(line[0]): int(line[3])})
+
 
 
 ## split test and training
@@ -86,6 +118,8 @@ for key, value in u_mid_pos.copy().items():
     test_count += 1
 
 print(len(u_mid_pos))
+
+
 
 
 print("end")
