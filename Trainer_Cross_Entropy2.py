@@ -176,7 +176,7 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
             count = 0
             for i in neg_lst[key]:
                 index = int(i[0]) - 1
-                y[line_no][index] = -1
+                y[line_no][index] = -0.5
                 if(count > y_size*3):
                     break
                 count = count + 1
