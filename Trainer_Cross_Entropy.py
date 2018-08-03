@@ -15,21 +15,26 @@ from preprocess_ml_1m import *
 
 #### all parameter
 batch_size = 100
-emb_size = 32
+emb_size = 90
 max_window_size = 70
 occupation_emb_size = 3
 feature_size = 1+1
 genre_size = 18
 input_size = emb_size+feature_size+occupation_emb_size+genre_size
-
-
+## learning rate
+global_step = tf.Variable(0, trainable=False)
+starter_learning_rate = 0.1
 learning_rate = 0.0001
+
+#SHUFFLE USER
+
+
 training_epochs = 3000
 display_step = 1
-y_size = 25
+y_size = 25 ## 取一半
 # Network Parameters
-n_hidden_1 = 128 # 1st layer number of features
-n_hidden_2 = 32 # 2nd layer number of features
+n_hidden_1 = 100 # 1st layer number of features
+n_hidden_2 = 90 # 2nd layer number of features
 
 # init_data(train_file)
 n_classes = len(movie_line)
@@ -125,6 +130,7 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
     """
     batch = {}
     i = pos
+    ## SHUFFLE USER
     for key, value in data_lst.copy().items():
         batch.update({key: value})
         del [data_lst[key]]
@@ -133,15 +139,13 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
             break
 
     x = np.zeros((batch_size, max_window_size))
-    y = np.zeros((batch_size, n_classes), dtype=int)
+    y = np.zeros((batch_size, n_classes), dtype=float)
     ##feature: age and gender
     feature = np.zeros((batch_size,feature_size))
     ##occupation:
     occupation = np.zeros((batch_size, 1))
     ##genre:
     genre = np.zeros((batch_size, genre_size))
-
-
 
 
 
@@ -174,12 +178,12 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
         feature[line_no][:] = temp
 
         for i in value:
-            # update y
-            ####one hot encoding for y has five labels
+            # update y: one hot encoding for y has five labels
             if (col_no_y < y_size):
                 index = int(i[0])
                 y[line_no][index] = 1
                 col_no_y += 1
+
             # update x
             ###other use as embedding look up for x
             else:
@@ -195,7 +199,7 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
         if key in neg_lst:
             count = 0
             for i in neg_lst[key]:
-                index = int(i[0]) - 1
+                index = int(i[0])
                 y[line_no][index] = -0.5
                 if(count > y_size*2):
                     break
@@ -210,10 +214,6 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
 
 
 ###################################### Test model
-    # _, top = tf.nn.top_k(out_layer, k = 11)
-    # correct_prediction = tf.equal(top, y_batch)
-    # Calculate accuracy
-#    accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
 def test():
     test_lst = u_mid_pos_test
     total_batch = int(len(test_lst) / batch_size)
@@ -248,7 +248,7 @@ def test():
             # print("predict", top_k)
             # print("real_y",  np.where(row_y == 1))
             # print("real_x", row_x)
-            for index in top_k:
+            for indexneg_label in top_k:
                 if(row_y[index] == 1):
                     hit += 1
                 all_rec_movies.add(index)
@@ -259,40 +259,6 @@ def test():
         # coverage = len(all_rec_movies) / (1.0 * movie_count)
         print('precision=%.4f\trecall=%.4f\n' %
               (precision, recall))
-
-        # _,top = tf.nn.top_k(out_layer, k=100)
-        # top = top.eval({x_batch: x, y_batch: y, word_num: word_number})
-
-
-        # print(out_layer[1])
-
-        ###accuracy
-    #     accuracy = np.zeros((batch_size, 1))
-    #     index_row = 0
-    #
-    #     for z,j, d in zip(top, y, a):
-    #         score = 0
-    #         # print(z[0:10])
-    #         # print("........")
-    #         # print(j)
-    #         # print("////////")
-    #         for col_i in z:
-    #             # print(d[col_i])
-    #             if(j[col_i] == 1):
-    #                 score += 1
-    #
-    #
-    #         accuracy[index_row] = score / 20
-    #         index_row += 1
-    #
-    #     # print(accuracy)
-    #     batch_accuracy = np.mean(accuracy)
-    #     final_accuracy += batch_accuracy
-    # print("Final Accuracy: ", final_accuracy * 1.0 / total_batch)
-
-
-
-
 
 
 

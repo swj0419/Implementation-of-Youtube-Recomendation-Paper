@@ -12,13 +12,12 @@ id_genre = {}
 u_mid_pos = {}
 u_mid_pos_test = {}
 u_mid_neg = {}
-test_size = 0.1
-
-
 count = 0
-
 mid_genre = {}
-##Read movie id
+
+'''
+Read movie id
+'''
 with open("./ml-1m/movies.dat", encoding='latin-1') as f:
     for line in f:
         line = line.strip().split('::')
@@ -27,72 +26,24 @@ with open("./ml-1m/movies.dat", encoding='latin-1') as f:
             line[1] = line[1] + "--2"
             print(line)
 
-        # if line[1] in movie_line:
-        #     line[1] = line[1] + "--3"
-        #
-        #     print(line)
         movie_line.update({line[1]: count})
         line_id.update({count: line[0]})
         id_line.update({line[0]: count})
         count = count + 1
+
         ##genre
-        genre = []
-        genre.append(line[2].split("|"))
-        mid_genre.update({line[0]: genre})
+        mid_genre.update({line[0]: line[2].split("|")})
 
-#####split train and test
-
-
-user_genre = {}
+'''
+split test set and training set
+'''
+test_size = 0.2
 with open("./ml-1m/ratings.dat",encoding='latin-1') as f:
     count = 0
     for line in f:
         line = line.strip().split("::")
         mid_rating = set()
         mid_rating = (id_line[line[1]], line[2])
-        #
-        # ## user genre
-        # for genre in mid_genre[line[1]]:
-        #     if(genre=="Action"):
-        #         user_genre.setdefault(int(line[0]), dict).update
-        #     elif(genre=="Adventure"):
-        #         user_genre[int(line[0])][1] += 1
-        #     elif (genre == "Animation"):
-        #         user_genre[int(line[0])][2] += 1
-        #     elif (genre == "Children's"):
-        #         user_genre[int(line[0])][3] += 1
-        #     elif (genre == "Comedy"):
-        #         user_genre[int(line[0])][4] += 1
-        #     elif (genre == "Crime"):
-        #         user_genre[int(line[0])][5] += 1
-        #     elif (genre == "Documentary"):
-        #         user_genre[int(line[0])][6] += 1
-        #     elif (genre == "Drama"):
-        #         user_genre[int(line[0])][7] += 1
-        #     elif (genre == "Fantasy"):
-        #         user_genre[int(line[0])][8] += 1
-        #     elif (genre == "Film-Noir"):
-        #         user_genre[int(line[0])][9] += 1
-        #     elif (genre == "Horror"):
-        #         user_genre[int(line[0])][10] += 1
-        #     elif (genre == "Musical"):
-        #         user_genre[int(line[0])][11] += 1
-        #     elif (genre == "Mystery"):
-        #         user_genre[int(line[0])][12] += 1
-        #     elif (genre == "Romance"):
-        #         user_genre[int(line[0])][13] += 1
-        #     elif (genre == "Sci-Fi"):
-        #         user_genre[int(line[0])][14] += 1
-        #     elif (genre == "Thriller"):
-        #         user_genre[int(line[0])][15] += 1
-        #     elif (genre == "War"):
-        #         user_genre[int(line[0])][16] += 1
-        #     elif (genre == "Western"):
-        #         user_genre[int(line[0])][17] += 1
-
-
-
-
         if (float(line[2]) < 3):
             u_mid_neg.setdefault(int(line[0]), []).append(mid_rating)
         elif (float(line[2]) > 3):
@@ -103,40 +54,33 @@ with open("./ml-1m/ratings.dat",encoding='latin-1') as f:
                 u_mid_pos.setdefault(int(line[0]), []).append(mid_rating)
 
 
-print("count", count)
-
-
 '''
-u_mid_pos has 6038 user, 575281 rates
-test size is 0.1 
+delete user with few movie ratings
 '''
-
-filter_threshold = 30
-##filter value < 8
+filter_threshold = 20
 count = 0
 
 for key, value in u_mid_pos.copy().items():
     if (len(value) < filter_threshold):
-        print("delete")
+        count += 1
         del(u_mid_pos[key])
         if key in u_mid_pos_test:
             del(u_mid_pos_test[key])
     else:
-        count += 1
         shuffle(u_mid_pos[key])
+print("number of delete", count)
 
-
-
-
+'''
+delete user in test set but not in training set
+'''
 for key, value in u_mid_pos_test.copy().items():
     if key not in u_mid_pos:
         del (u_mid_pos_test[key])
 
 
-print(len(u_mid_pos))
-print(len(u_mid_pos_test))
-
-
+'''
+read other features
+'''
 user_gender = {}  ## 0 is M, 1 is F
 user_age = {}  ##  0 - 1, 1 - 18, 2 - 25.....
 user_occupation = {} ## 0-0
@@ -150,28 +94,58 @@ with open("./ml-1m/users.dat",encoding='latin-1') as f:
             user_gender.update({int(line[0]): 1})
 
         ### update age
-        if(line[2] == "1"):
-            user_age.update({int(line[0]): 0})
-        elif(line[2] == "18"):
-            user_age.update({int(line[0]): 1})
-        elif (line[2] == "25"):
-            user_age.update({int(line[0]): 2})
-        elif (line[2] == "35"):
-            user_age.update({int(line[0]): 3})
-        elif (line[2] == "45"):
-            user_age.update({int(line[0]): 4})
-        elif (line[2] == "50"):
-            user_age.update({int(line[0]): 5})
-        elif (line[2] == "56"):
-            user_age.update({int(line[0]): 6})
+        user_age.update({int(line[0]): int(line[2])/56})
 
         ###update ocupation
         user_occupation.update({int(line[0]): int(line[3])})
 
+user_genre = {}
+for key, value in u_mid_pos.items():
+    genre_count = np.zeros(18)
+    for index in value:
+        id = line_id[index[0]]
+        genres = mid_genre[id]
+        for genre in genres:
+            if (genre == "Action"):
+                genre_count[0] += 1
+            elif (genre == "Adventure"):
+                genre_count[1] += 1
+            elif (genre == "Animation"):
+                genre_count[2] += 1
+            elif (genre == "Children's"):
+                genre_count[3] += 1
+            elif (genre == "Comedy"):
+                genre_count[4] += 1
+            elif (genre == "Crime"):
+                genre_count[5] += 1
+            elif (genre == "Documentary"):
+                genre_count[6] += 1
+            elif (genre == "Drama"):
+                genre_count[7] += 1
+            elif (genre == "Fantasy"):
+                genre_count[8] += 1
+            elif (genre == "Film-Noir"):
+                genre_count[9] += 1
+            elif (genre == "Horror"):
+                genre_count[10] += 1
+            elif (genre == "Musical"):
+                genre_count[11] += 1
+            elif (genre == "Mystery"):
+                genre_count[12] += 1
+            elif (genre == "Romance"):
+                genre_count[13] += 1
+            elif (genre == "Sci-Fi"):
+                genre_count[14] += 1
+            elif (genre == "Thriller"):
+                genre_count[15] += 1
+            elif (genre == "War"):
+                genre_count[16] += 1
+            elif (genre == "Western"):
+                genre_count[17] += 1
+    genre_count = np.divide(genre_count, np.sum(genre_count))
+    user_genre.update({key: genre_count})
 
-
-
-
+print("u_mid_pos", len(u_mid_pos))
 print("end")
 
 

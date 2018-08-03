@@ -91,7 +91,7 @@ embedding_occ = {
 ##### initialize batch parameter
 word_num = tf.placeholder(tf.float32, shape=[None, 1])
 x_batch = tf.placeholder(tf.int32, shape=[None, max_window_size])   ###max_window_size
-y_batch = tf.placeholder(tf.float32, shape=[None, n_classes]) ###one-hot？？？
+y_batch = tf.placeholder(tf.float32, shape=[None, n_classes]) ###one-hot
 feature_batch = tf.placeholder(tf.float32, shape=[None, feature_size])
 occupation_batch =  tf.placeholder(tf.int32, shape=[None, 1])
 occupation_embedding = tf.squeeze(tf.nn.embedding_lookup(embedding_occ['input'], occupation_batch))
