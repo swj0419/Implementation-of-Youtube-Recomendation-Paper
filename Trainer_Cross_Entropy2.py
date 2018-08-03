@@ -8,6 +8,7 @@ import time
 import math
 import os
 import itertools
+from sklearn.metrics import roc_auc_score
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -15,24 +16,36 @@ from preprocess_ml_1m_TEST2 import *
 
 #### all parameter
 batch_size = 100
-emb_size = 64
-max_window_size = 70
-input_size = emb_size+2+7+21
+emb_size = 30
+max_window_size = 60
+occupation_emb_size = 3
+feature_size = 1+1
+genre_size = 18
+input_size = emb_size+feature_size+occupation_emb_size+genre_size
+## learning rate
+global_step = tf.Variable(0, trainable=False)
+starter_learning_rate = 0.1
 learning_rate = 0.0001
+
+
 training_epochs = 300
 display_step = 1
-y_size = 25
+y_size = 10
 # Network Parameters
-n_hidden_1 = 128 # 1st layer number of features
-n_hidden_2 = 64 # 2nd layer number of features
+n_hidden_1 = 40 # 1st layer number of features
+n_hidden_2 = 30 # 2nd layer number of features
+
 
 # init_data(train_file)
 n_classes = len(movie_line)
 # train_lst = linecache.getlines(train_file)
 print("Class Num: ", n_classes)
 
-### store y label for training set
+# store y label for training set
 y_label = {}
+x_label = {}
+neg_label = {}
+
 
 # Store layers weight & bias
 weights = {
@@ -68,16 +81,29 @@ embedding = {
     # 'output':tf.Variable(tf.random_uniform([len(label_dict)+1, emb_size], -1.0, 1.0))
 }
 
+
+embedding_occ = {
+    'input':tf.Variable(tf.random_uniform([21, occupation_emb_size], -1.0, 1.0))
+    # 'output':tf.Variable(tf.random_uniform([len(label_dict)+1, emb_size], -1.0, 1.0))
+}
+
+
 ##### initialize batch parameter
 word_num = tf.placeholder(tf.float32, shape=[None, 1])
 x_batch = tf.placeholder(tf.int32, shape=[None, max_window_size])   ###max_window_size
-y_batch = tf.placeholder(tf.float32, shape=[None, 3883]) ###one-hot？？？
-feature_batch = tf.placeholder(tf.float32, shape=[None, 2+7+21])
+y_batch = tf.placeholder(tf.float32, shape=[None, n_classes]) ###one-hot？？？
+feature_batch = tf.placeholder(tf.float32, shape=[None, feature_size])
+occupation_batch =  tf.placeholder(tf.int32, shape=[None, 1])
+occupation_embedding = tf.squeeze(tf.nn.embedding_lookup(embedding_occ['input'], occupation_batch))
+genre_batch = tf.placeholder(tf.float32, shape=[None, genre_size])
+
 
 
 input_embedding = tf.nn.embedding_lookup(embedding['input'], x_batch)
 project_embedding = tf.div(tf.reduce_sum(input_embedding, 1),word_num)
 project_embedding = tf.concat([project_embedding, feature_batch],1)
+project_embedding = tf.concat([project_embedding, occupation_embedding],1)
+project_embedding = tf.concat([project_embedding, genre_batch],1)
 check_op = tf.add_check_numerics_ops()
 
 
@@ -99,17 +125,16 @@ init = tf.global_variables_initializer()
 
 out_layer = tf.nn.sigmoid(score)
 
-#### read data function
+'''
+read data function
+'''
+keys = set()
 def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use:(mid,rate)}
-    """
-    :param pos:
-    :param batch_size:
-    :param data_lst:
-    :return: returns a set of numpy arrays, which will be fed into tensorflow placeholders
-    """
     batch = {}
     i = pos
+    ## SHUFFLE USER
     for key, value in data_lst.copy().items():
+        keys.add(key)
         batch.update({key: value})
         del [data_lst[key]]
         pos += 1
@@ -117,10 +142,14 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
             break
 
     x = np.zeros((batch_size, max_window_size))
-    y = np.zeros((batch_size, n_classes), dtype=int)
-    # 2 for gender, 7 for age, 21
-    #  for occupation
-    feature = np.zeros((batch_size, 2+7+21), dtype=int)
+    y = np.zeros((batch_size, n_classes), dtype=float)
+    ##feature: age and gender
+    feature = np.zeros((batch_size,feature_size))
+    ##occupation:
+    occupation = np.zeros((batch_size, 1))
+    ##genre:
+    genre = np.zeros((batch_size, genre_size))
+
 
     word_num = np.zeros((batch_size))
 
@@ -130,23 +159,23 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
         col_no_x = 0
         col_no_y = 0
 
-
         # update other feature:
         ##user_gender:
-        gender = np.zeros(2)
-        gender[user_gender[key]] = 1
+        gender = np.zeros(1)
+        gender[0] = user_gender[key]
 
         ## user_age:
-        age = np.zeros(7)
-        age[user_age[key]] = 1
+        age = np.zeros(1)
+        age[0] = user_age[key]
+
 
         ## user_occupation:
-        occupation = np.zeros(21)
-        occupation[user_occupation[key]] = 1
+        occupation[line_no][:] = user_occupation[key]
 
+        ## user genre:
+        genre[line_no][:] = user_genre[key]
 
         temp = np.concatenate([gender, age])
-        temp = np.concatenate([temp, occupation])
         feature[line_no][:] = temp
 
 
@@ -156,47 +185,43 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
                 index = int(i[0])
                 y[line_no][index] = 1
                 col_no_y += 1
-                ## store in y_label:
-                y_label.setdefault(key,set()).add(i[0])
-
+                # store in y_label:
+                y_label.setdefault(key,set()).add(index)
 
             # update x
-            ###other use as embedding look up for x
             else:
                 index = int(i[0])
                 # y[line_no][index] = 1
-                x[line_no][col_no_x] = i[0]
+                x[line_no][col_no_x] = index
                 col_no_x += 1
+                # store x label
+                x_label.setdefault(key, set()).add(index)
 
             if col_no_x >= max_window_size:
                 break
 
-####add negative samples:  set one hot encoding for negative sample = -1
+# add negative samples:  set one hot encoding for negative sample = -1
         if key in neg_lst:
             count = 0
             for i in neg_lst[key]:
-                index = int(i[0]) - 1
+                index = int(i[0])
                 y[line_no][index] = -0.5
                 if(count > y_size*3):
                     break
+                neg_label.setdefault(key, set()).add(index)
                 count = count + 1
 
 
         word_num[line_no] = col_no_x
         line_no += 1
 
-    return x, y, word_num.reshape(batch_size, 1), feature
+    return x, y, word_num.reshape(batch_size, 1), feature, occupation, genre
 
 
 def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use:(mid,rate)}
-    """
-    :param pos:
-    :param batch_size:
-    :param data_lst:
-    :return: returns a set of numpy arrays, which will be fed into tensorflow placeholders
-    """
     batch = {}
     i = pos
+    ## SHUFFLE USER
     for key, value in data_lst.copy().items():
         batch.update({key: value})
         del [data_lst[key]]
@@ -205,9 +230,16 @@ def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos:
             break
 
     x = np.zeros((batch_size, max_window_size))
-    y = np.zeros((batch_size, n_classes), dtype=int)
-    y_label_test = np.zeros((batch_size, y_size), dtype=int)
-    feature = np.zeros((batch_size, 2 + 7 + 21), dtype=int)
+    y = np.zeros((batch_size, n_classes), dtype=float)
+    y_train = np.zeros((batch_size, n_classes), dtype=float)
+
+
+    # feature: age and gender
+    feature = np.zeros((batch_size, feature_size))
+    # occupation:
+    occupation = np.zeros((batch_size, 1))
+    # genre:
+    genre = np.zeros((batch_size, genre_size))
 
     word_num = np.zeros((batch_size))
 
@@ -215,103 +247,118 @@ def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos:
 
     for key, value in batch.items():
         col_no_x = 0
-        col_no_y = 0
-        col_no_y_label = 0
-
 
         # update other feature:
         ##user_gender:
-        gender = np.zeros(2)
-        gender[user_gender[key]] = 1
+        gender = np.zeros(1)
+        gender[0] = user_gender[key]
 
         ## user_age:
-        age = np.zeros(7)
-        age[user_age[key]] = 1
+        age = np.zeros(1)
+        age[0] = user_age[key]
 
         ## user_occupation:
-        occupation = np.zeros(21)
-        occupation[user_occupation[key]] = 1
+        occupation[line_no][:] = user_occupation[key]
 
+        ## user genre:
+        genre[line_no][:] = user_genre[key]
 
         temp = np.concatenate([gender, age])
-        temp = np.concatenate([temp, occupation])
         feature[line_no][:] = temp
 
-
+        # update y: one hot encoding for y has labels
         for i in value:
-            # update y
-            ####one hot encoding for y has five labels
             index = int(i[0])
             y[line_no][index] = 1
-            col_no_y += 1
 
-        # update x
-        for index in u_mid_pos[key]:
-            x[line_no][col_no_x] = index[0]
+
+        # update x: retrive original x_label used in training
+        for index in x_label[key]:
+            x[line_no][col_no_x] = index
             col_no_x += 1
-            if col_no_x >= max_window_size:
-                break
 
-        ##update y-label
-        for u in y_label[key]:
-            y_label_test[line_no][col_no_y_label] = str(u)
-            col_no_y_label += 1
 
-        ####add negative samples:  set one hot encoding for negative sample = -1
+        # update y used in training:
+        for index in y_label[key]:
+            index = int(i[0])
+            y_train[line_no][index] = 1
+
+        # add negative samples:  set one hot encoding for negative sample = -1
         if key in neg_lst:
-            count = 0
             for i in neg_lst[key]:
-                index = int(i[0]) - 1
-                y[line_no][index] = -1
-                if (count > col_no_y * 3):
-                    break
-                count = count + 1
+                index = int(i[0])
+                if i in neg_label[key]:
+                    y_train[line_no][index] = -0.5
+                else:
+                    y[line_no][index] = -0.5
 
         word_num[line_no] = col_no_x
         line_no += 1
 
+    return x, y, word_num.reshape(batch_size, 1), y_train, feature, occupation, genre
 
-    return x, y, word_num.reshape(batch_size, 1), y_label_test, feature
 
 
-###################################### Test model
-    # _, top = tf.nn.top_k(out_layer, k = 11)
-    # correct_prediction = tf.equal(top, y_batch)
-    # Calculate accuracy
-#    accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
+'''
+Test model
+'''
 def test():
+    remove_key = set(u_mid_pos_test.keys()) - keys
+    for i in remove_key:
+        del (u_mid_pos_test[i])
+
     test_lst = u_mid_pos_test
+    batch_size = len(test_lst)
     total_batch = int(len(test_lst) / batch_size)
 
-    ##### top k accuracy:
+    # top k accuracy:
     k = 30
     rec_count = 0
     hit = 0
     test_count = 0
-    # all_rec_movies = set()
     avg_cost = 0
 
     for i in range(total_batch):
         copy = u_mid_pos_test.copy()
-        x, y, word_number, y_label_test, feature = read_data_test(i * batch_size, batch_size, copy, u_mid_neg)
-        out_score = out_layer.eval({x_batch: x, word_num: word_number, feature_batch: feature})
+        x, y, word_number, y_train, feature, occupation, genre = read_data_test(i * batch_size, batch_size, copy, u_mid_neg)
+        out_score = out_layer.eval({x_batch: x, word_num: word_number,
+                                    feature_batch: feature, occupation_batch: occupation,
+                                    genre_batch: genre})
 
-        ### cost
-        c = cost.eval({x_batch: x, word_num: word_number, y_batch: y, feature_batch: feature})
+        # cost
+        c = cost.eval({x_batch: x, word_num: word_number, y_batch: y,
+                       feature_batch: feature, occupation_batch: occupation,
+                       genre_batch: genre})
+        print("validation cost", c)
 
-
-        avg_cost += c / total_batch
-        ## calculate recall and precision
-
-
-        for row_x, row_out, row_y, row_y_label in zip(x, out_score,y, y_label_test):
-            ## set the training labels' prob as 0
+        # get roc
+        # calculate recall and precision
+        y_true = []
+        y_pred = []
+        for row_x, row_out, row_y, row_y_train in zip(x, out_score, y, y_train):
+            # set the training labels' prob as 0
             for col in row_x:
                 row_out[int(col)] = 0
-            for col in row_y_label:
+
+            train_label = np.where(row_y_train == 1)[0]
+            for col in train_label:
                 row_out[int(col)] = 0
 
-            ##get top k index
+            # get roc
+            pos_label = np.where(row_y == 1)[0]
+            for col in pos_label:
+                y_true.append(1)
+                y_pred.append(row_out[int(col)])
+                # print("pos_label score", row_out[int(col)])
+
+
+            neg_label = np.where(row_y == -0.5)[0]
+            for col in neg_label:
+                y_true.append(0)
+                y_pred.append(row_out[int(col)])
+                # print("neg_label score", row_out[int(col)])
+
+            # get top k index
             top_k = np.argsort(row_out)[::-1][:k]
             # print("predict", top_k)
             # print("real_y",  np.where(row_y == 1))
@@ -323,10 +370,17 @@ def test():
             test_count += y_size
     precision = hit / (1.0 * rec_count)
     recall = hit / (1.0 * test_count)
-    print("validation cost", avg_cost)
-    # coverage = len(all_rec_movies) / (1.0 * movie_count)
+
+
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    auc = roc_auc_score(y_true, y_pred)
+
+    print("auc", auc)
     print('precision=%.4f\trecall=%.4f\n' %
             (precision, recall))
+
+
 
 
 
@@ -351,12 +405,14 @@ with tf.Session() as sess:
         copy = u_mid_pos.copy()
 
         for i in range(total_batch):
-            x, y, word_number, feature = read_data(i * batch_size, batch_size, copy, u_mid_neg)
+            x, y, word_number, feature, occupation, genre = read_data(i * batch_size, batch_size, copy, u_mid_neg)
             # print(x)
             # print(word_number)
             # print(y)
             _, c, a = sess.run([optimizer, cost, check_op],
-                            feed_dict={x_batch: x, y_batch: y, word_num: word_number, feature_batch: feature})
+                               feed_dict=({x_batch: x, word_num: word_number, y_batch: y,
+                                           feature_batch: feature, occupation_batch: occupation,
+                                           genre_batch: genre}))
 
             # print("loss", l)
             avg_cost += c / total_batch
