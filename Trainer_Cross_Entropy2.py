@@ -15,8 +15,8 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from preprocess_ml_1m_TEST2 import *
 
 #### all parameter
-batch_size = 100
-emb_size = 80
+batch_size = 300
+emb_size = 40
 max_window_size = 100
 occupation_emb_size = 3
 feature_size = 1+1
@@ -25,15 +25,15 @@ input_size = emb_size+feature_size+occupation_emb_size+genre_size
 ## learning rate
 global_step = tf.Variable(0, trainable=False)
 starter_learning_rate = 0.1
-learning_rate = 0.0001
+learning_rate = 0.00005
 
 
-training_epochs = 300
+training_epochs = 3000
 display_step = 1
-y_size = 10
+y_size = 15
 # Network Parameters
-n_hidden_1 = 100 # 1st layer number of features
-n_hidden_2 = 80 # 2nd layer number of features
+n_hidden_1 = 50 # 1st layer number of features
+n_hidden_2 = 40 # 2nd layer number of features
 
 
 # init_data(train_file)
@@ -205,7 +205,7 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
             count = 0
             for i in neg_lst[key]:
                 index = int(i[0])
-                y[line_no][index] = -0.5
+                y[line_no][index] = -1
                 if(count > y_size*3):
                     break
                 neg_label.setdefault(key, set()).add(index)
@@ -284,14 +284,17 @@ def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos:
             y_train[line_no][index] = 1
 
         # add negative samples:  set one hot encoding for negative sample = -1
+        count_y = 0
         if key in neg_lst:
             for i in neg_lst[key]:
                 index = int(i[0])
                 if i in neg_label[key]:
-                    y_train[line_no][index] = -0.5
+                    y_train[line_no][index] = -1
                 else:
-                    y[line_no][index] = -0.5
-
+                    y[line_no][index] = -1
+                    count_y += 1
+                    if (count_y > y_size * 3):
+                        break
         word_num[line_no] = col_no_x
         line_no += 1
 
@@ -352,7 +355,7 @@ def test():
                 # print("pos_label score", row_out[int(col)])
 
 
-            neg_label = np.where(row_y == -0.5)[0]
+            neg_label = np.where(row_y == -1)[0]
             for col in neg_label:
                 y_true.append(0)
                 y_pred.append(row_out[int(col)])
