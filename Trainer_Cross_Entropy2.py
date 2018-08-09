@@ -15,7 +15,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from preprocess_ml_1m_TEST2 import *
 
 #### all parameter
-batch_size = 300
+batch_size = 50
 emb_size = 40
 max_window_size = 100
 occupation_emb_size = 3
@@ -24,8 +24,7 @@ genre_size = 18
 input_size = emb_size+feature_size+occupation_emb_size+genre_size
 ## learning rate
 global_step = tf.Variable(0, trainable=False)
-starter_learning_rate = 0.1
-learning_rate = 0.00005
+learning_rate = 0.0001
 
 
 training_epochs = 3000
@@ -232,7 +231,7 @@ def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos:
     x = np.zeros((batch_size, max_window_size))
     y = np.zeros((batch_size, n_classes), dtype=float)
     y_train = np.zeros((batch_size, n_classes), dtype=float)
-
+    y_count_total = []
 
     # feature: age and gender
     feature = np.zeros((batch_size, feature_size))
@@ -277,11 +276,13 @@ def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos:
             x[line_no][col_no_x] = index
             col_no_x += 1
 
-
+        y_count = 0
         # update y used in training:
         for index in y_label[key]:
             index = int(i[0])
             y_train[line_no][index] = 1
+            y_count += 1
+        y_count_total.append(y_count)
 
         # add negative samples:  set one hot encoding for negative sample = -1
         count_y = 0
@@ -298,7 +299,7 @@ def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos:
         word_num[line_no] = col_no_x
         line_no += 1
 
-    return x, y, word_num.reshape(batch_size, 1), y_train, feature, occupation, genre
+    return x, y, word_num.reshape(batch_size, 1), y_train, feature, occupation, genre, y_count_total
 
 
 
@@ -315,7 +316,7 @@ def test():
     total_batch = int(len(test_lst) / batch_size)
 
     # top k accuracy:
-    k = 30
+    k = 10
     rec_count = 0
     hit = 0
     test_count = 0
@@ -323,7 +324,7 @@ def test():
 
     for i in range(total_batch):
         copy = u_mid_pos_test.copy()
-        x, y, word_number, y_train, feature, occupation, genre = read_data_test(i * batch_size, batch_size, copy, u_mid_neg)
+        x, y, word_number, y_train, feature, occupation, genre, y_count_total = read_data_test(i * batch_size, batch_size, copy, u_mid_neg)
         out_score = out_layer.eval({x_batch: x, word_num: word_number,
                                     feature_batch: feature, occupation_batch: occupation,
                                     genre_batch: genre})
@@ -338,7 +339,7 @@ def test():
         # calculate recall and precision
         y_true = []
         y_pred = []
-        for row_x, row_out, row_y, row_y_train in zip(x, out_score, y, y_train):
+        for row_x, row_out, row_y, row_y_train, y_number in zip(x, out_score, y, y_train, y_count_total):
             # set the training labels' prob as 0
             for col in row_x:
                 row_out[int(col)] = 0
@@ -370,7 +371,7 @@ def test():
                 if(row_y[index] == 1):
                     hit += 1
             rec_count += k
-            test_count += y_size
+            test_count += y_number
     precision = hit / (1.0 * rec_count)
     recall = hit / (1.0 * test_count)
 
