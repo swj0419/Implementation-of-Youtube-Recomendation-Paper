@@ -57,7 +57,7 @@ with open("./ml-1m/ratings.dat",encoding='latin-1') as f:
 '''
 delete user with few movie ratings
 '''
-filter_threshold = 20
+filter_threshold = 4
 count = 0
 
 for key, value in u_mid_pos.copy().items():

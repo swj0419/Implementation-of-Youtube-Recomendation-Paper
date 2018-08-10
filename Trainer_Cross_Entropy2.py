@@ -16,7 +16,7 @@ from preprocess_ml_1m_TEST2 import *
 
 #### all parameter
 batch_size = 50
-emb_size = 40
+emb_size = 50
 max_window_size = 100
 occupation_emb_size = 3
 feature_size = 1+1
@@ -24,15 +24,15 @@ genre_size = 18
 input_size = emb_size+feature_size+occupation_emb_size+genre_size
 ## learning rate
 global_step = tf.Variable(0, trainable=False)
-learning_rate = 0.0001
+learning_rate = 0.001
 
 
 training_epochs = 3000
 display_step = 1
 y_size = 15
 # Network Parameters
-n_hidden_1 = 50 # 1st layer number of features
-n_hidden_2 = 40 # 2nd layer number of features
+n_hidden_1 = 60 # 1st layer number of features
+n_hidden_2 = 50 # 2nd layer number of features
 
 
 # init_data(train_file)
@@ -109,9 +109,12 @@ check_op = tf.add_check_numerics_ops()
 
 
 # Construct model
+
 pred = multilayer_perceptron(project_embedding, weights, biases)
 
-# Construct the variables for the NCE loss
+# Construct the variables
+pred = tf.nn.l2_normalize(pred,0)
+embedding['input'] = tf.nn.l2_normalize(embedding['input'],0)
 score = tf.matmul(pred, tf.transpose(embedding['input']))
 loss = tf.nn.sigmoid_cross_entropy_with_logits(logits = score, labels = y_batch)
 
@@ -177,40 +180,58 @@ def read_data(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos: {use
         temp = np.concatenate([gender, age])
         feature[line_no][:] = temp
 
-
+        odd = 0
         for i in value:
             # update y: one hot encoding for y has five labels
-            if (col_no_y < y_size):
+            if(len(value) < y_size+4):
                 index = int(i[0])
-                y[line_no][index] = 1
-                col_no_y += 1
-                # store in y_label:
-                y_label.setdefault(key,set()).add(index)
+                if(odd % 2 == 0):
+                    x[line_no][col_no_x] = index
+                    col_no_x += 1
+                    x_label.setdefault(key, set()).add(index)
+                    odd += 1
+                else:
+                    y[line_no][index] = 1
+                    col_no_y += 1
+                    # store in y_label:
+                    y_label.setdefault(key, set()).add(index)
+                    odd += 1
 
-            # update x
+
             else:
-                index = int(i[0])
-                # y[line_no][index] = 1
-                x[line_no][col_no_x] = index
-                col_no_x += 1
-                # store x label
-                x_label.setdefault(key, set()).add(index)
+                if (col_no_y < y_size):
+                    index = int(i[0])
+                    y[line_no][index] = 1
+                    col_no_y += 1
+                    # store in y_label:
+                    y_label.setdefault(key,set()).add(index)
 
-            if col_no_x >= max_window_size:
-                break
+                # update x
+                else:
+                    index = int(i[0])
+                    # y[line_no][index] = 1
+                    x[line_no][col_no_x] = index
+                    col_no_x += 1
+                    # store x label
+                    x_label.setdefault(key, set()).add(index)
+
+                if col_no_x >= max_window_size:
+                    break
 
 # add negative samples:  set one hot encoding for negative sample = -1
         if key in neg_lst:
             count = 0
             for i in neg_lst[key]:
                 index = int(i[0])
-                y[line_no][index] = -1
+                y[line_no][index] = -0.5
                 if(count > y_size*3):
                     break
                 neg_label.setdefault(key, set()).add(index)
                 count = count + 1
 
-
+        # print("x",x[line_no])
+        # print("col_no_x", col_no_x)
+        # print("y", y[line_no])
         word_num[line_no] = col_no_x
         line_no += 1
 
@@ -261,7 +282,6 @@ def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos:
 
         ## user genre:
         genre[line_no][:] = user_genre[key]
-
         temp = np.concatenate([gender, age])
         feature[line_no][:] = temp
 
@@ -290,9 +310,9 @@ def read_data_test(pos, batch_size, data_lst, neg_lst):  # data_lst = u_mid_pos:
             for i in neg_lst[key]:
                 index = int(i[0])
                 if i in neg_label[key]:
-                    y_train[line_no][index] = -1
+                    y_train[line_no][index] = -0.5
                 else:
-                    y[line_no][index] = -1
+                    y[line_no][index] = -0.5
                     count_y += 1
                     if (count_y > y_size * 3):
                         break
@@ -356,7 +376,7 @@ def test():
                 # print("pos_label score", row_out[int(col)])
 
 
-            neg_label = np.where(row_y == -1)[0]
+            neg_label = np.where(row_y == -0.5)[0]
             for col in neg_label:
                 y_true.append(0)
                 y_pred.append(row_out[int(col)])
@@ -383,12 +403,6 @@ def test():
     print("auc", auc)
     print('precision=%.4f\trecall=%.4f\n' %
             (precision, recall))
-
-
-
-
-
-
 
 
 
